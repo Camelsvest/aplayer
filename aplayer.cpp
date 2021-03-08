@@ -8,7 +8,6 @@
 #include "wav_file.h"
 #include "pcm_utils.h"
 
-#define DEFAULT_PCM_NAME    "default"
 #define DEFAULT_FORMAT		SND_PCM_FORMAT_U8
 #define DEFAULT_SPEED 		8000
 
@@ -26,8 +25,8 @@ do {                            \
     struct tm tmNow;            \
     gettimeofday(&now, NULL);   \
     localtime_r(&now.tv_sec, &tmNow); \
-    fprintf(stderr, "%02d:%02d:%02d.%03d 0x%08X %s:%d: " fmt, tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec, now.tv_usec/1000, \
-        pthread_self(), __FILE__, __LINE__, ##__VA_ARGS__); \
+    fprintf(stderr, "%02d:%02d:%02d.%03ld 0x%08X %s:%d: " fmt, tmNow.tm_hour, tmNow.tm_min, tmNow.tm_sec, now.tv_usec/1000, \
+            (uint32_t)pthread_self(), __FILE__, __LINE__, ##__VA_ARGS__); \
 } while (0)
 #else
 #define DBG(...)
@@ -65,7 +64,7 @@ APlayer::~APlayer()
     }
 }
 
-int APlayer::play(const char * filename)
+int APlayer::play(const char * filename, const char *device)
 {
     WavFile *wav;
     int ret = -1;
@@ -79,11 +78,11 @@ int APlayer::play(const char * filename)
         ret = wav->open(filename);
         if (ret < 0)
         {
-            fprintf(stderr, "Failed to open %s\n", filename);
+            DBG("Failed to open %s\n", filename);
             return -1;
         }
         
-        if (initHW() < 0)
+        if (initHW(device) < 0)
             return -1;
 
         setParams(wav);
@@ -415,7 +414,7 @@ snd_pcm_format_t APlayer::getPCMFormat(WavFile *file)
     return format;
 }
 
-int APlayer::initHW()
+int APlayer::initHW(const char *device)
 {
     int err;
     snd_pcm_info_t *info;
@@ -424,17 +423,25 @@ int APlayer::initHW()
 	err = snd_output_stdio_attach(&log, stdout, 0);
 	assert(err >= 0);
 
-    err = snd_pcm_open(&handle, DEFAULT_PCM_NAME, SND_PCM_STREAM_PLAYBACK, openMode);
-    if (err < 0)
+    if (device && strlen(device) > 0)
     {
-        fprintf(stderr, "audio open error: %s\n", snd_strerror(err));
+        err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, openMode);
+        if (err < 0)
+        {
+            DBG("audio open error: %s\n", snd_strerror(err));
+            return -1;
+        }
+    }
+    else
+    {
+        DBG("Invalid parameters.\n");
         return -1;
     }
-
+    
     err = snd_pcm_info(handle, info);
     if (err < 0)
     {
-        fprintf(stderr, "info error: %s\n", snd_strerror(err));
+        DBG("info error: %s\n", snd_strerror(err));
         return -1;
     }
 
@@ -442,7 +449,7 @@ int APlayer::initHW()
     {
         err = snd_pcm_nonblock(handle, 1);
 		if (err < 0) {
-			fprintf(stderr, "nonblock setting error: %s", snd_strerror(err));
+			DBG("nonblock setting error: %s", snd_strerror(err));
 			return -1;
 		}        
     }
@@ -488,7 +495,7 @@ int APlayer::setParams(WavFile *file)
 	err = snd_pcm_hw_params_any(handle, params);
 	if (err < 0)
 	{
-		fprintf(stderr, "Broken configuration for this PCM: no configurations available");
+		DBG("Broken configuration for this PCM: no configurations available");
 		return -1;
 	}
 
@@ -501,14 +508,14 @@ int APlayer::setParams(WavFile *file)
 
 	if (err < 0)
 	{
-		fprintf(stderr, "Access type not available");
+		DBG("Access type not available");
 		return -1;
 	}
 
 	err = snd_pcm_hw_params_set_format(handle, params, format);
 	if (err < 0)
 	{
-		fprintf(stderr, "Sample format non available\r\n");
+		DBG("Sample format non available\r\n");
 		show_available_sample_formats(handle, params);
 		return -1;
 	}
@@ -516,7 +523,7 @@ int APlayer::setParams(WavFile *file)
 	err = snd_pcm_hw_params_set_channels(handle, params, channels);
 	if (err < 0)
 	{
-		fprintf(stderr, "Channels count non available");
+		DBG("Channels count non available");
 		return -1;
 	}	
 
@@ -527,13 +534,13 @@ int APlayer::setParams(WavFile *file)
 	{
 		char plugex[64];
 		const char *pcmname = snd_pcm_name(handle);
-		fprintf(stderr, "Warning: rate is not accurate (requested = %iHz, got = %iHz)\n",
+		DBG("Warning: rate is not accurate (requested = %iHz, got = %iHz)\n",
 		                rate, hwparams.rate);
 		if (! pcmname || strchr(snd_pcm_name(handle), ':'))
 			*plugex = 0;
 		else
 			snprintf(plugex, sizeof(plugex), "-Dplug:%s", snd_pcm_name(handle));
-		fprintf(stderr, "         please, try the plug plugin %s\n", plugex);
+		DBG("         please, try the plug plugin %s\n", plugex);
 	}
 
 	rate = hwparams.rate;
@@ -558,7 +565,7 @@ int APlayer::setParams(WavFile *file)
 	err = snd_pcm_hw_params(handle, params);
 	if (err < 0)
 	{
-		fprintf(stderr, "Unable to install hw params:");
+		DBG("Unable to install hw params:");
 		snd_pcm_hw_params_dump(params, log);
 		return -1;
 	}
@@ -567,7 +574,7 @@ int APlayer::setParams(WavFile *file)
 	snd_pcm_hw_params_get_buffer_size(params, &bufferSize);
 	if (chunkSize == bufferSize)
 	{
-		fprintf(stderr, "Can't use period equal to buffer size (%lu == %lu)\r\n",
+		DBG("Can't use period equal to buffer size (%lu == %lu)\r\n",
 		        chunkSize, bufferSize);
 		return -1;
 	}
@@ -576,7 +583,7 @@ int APlayer::setParams(WavFile *file)
 	err = snd_pcm_sw_params_current(handle, swparams);
 	if (err < 0)
 	{
-		fprintf(stderr, "Unable to get current sw params.");
+		DBG("Unable to get current sw params.");
 		return -1;
 	}
 
@@ -592,7 +599,7 @@ int APlayer::setParams(WavFile *file)
 
 	if (snd_pcm_sw_params(handle, swparams) < 0)
 	{
-		fprintf(stderr, "unable to install sw params:");
+		DBG("unable to install sw params:");
 		snd_pcm_sw_params_dump(swparams, log);
 		return -1;
 	}
@@ -630,7 +637,7 @@ ssize_t APlayer::pcmWrite(char *data, size_t count)
 		}
         else if (r < 0)
         {
-			fprintf(stderr, "write error: %s", snd_strerror(r));
+			DBG("write error: %s", snd_strerror(r));
 			return -1;
 		}
 		if (r > 0)
@@ -651,7 +658,7 @@ void APlayer::xrun(void)
 	snd_pcm_status_alloca(&status);
 	if ((res = snd_pcm_status(handle, status))<0)
     {
-		fprintf(stderr, "status error: %s\r\n", snd_strerror(res));
+		DBG("status error: %s\r\n", snd_strerror(res));
 		return;
 	}
 
@@ -659,13 +666,13 @@ void APlayer::xrun(void)
     {
 		if ((res = snd_pcm_prepare(handle))<0)
         {
-			fprintf(stderr, "xrun: prepare error: %s\r\n", snd_strerror(res));
+			DBG("xrun: prepare error: %s\r\n", snd_strerror(res));
 			return;
 		}
 		return;		/* ok, data should be accepted again */
 	}
     
-	fprintf(stderr, "read/write error, state = %s\r\n", snd_pcm_state_name(snd_pcm_status_get_state(status)));
+	DBG("read/write error, state = %s\r\n", snd_pcm_state_name(snd_pcm_status_get_state(status)));
 	return;
 }
 
@@ -680,7 +687,7 @@ void APlayer::suspend(void)
     {
 		if ((res = snd_pcm_prepare(handle)) < 0)
         {
-			fprintf(stderr, "suspend: prepare error: %s\r\n", snd_strerror(res));
+			DBG("suspend: prepare error: %s\r\n", snd_strerror(res));
 		}
 	}
 }

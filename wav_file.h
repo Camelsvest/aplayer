@@ -64,7 +64,7 @@ public:
     void dumpInfo();
 
 private:
-    int safeRead(void *buffer, size_t bytes);
+    size_t safeRead(void *buffer, size_t bytes);
     
     FILE *fp;
 	

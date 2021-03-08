@@ -63,7 +63,8 @@ int WavFile::open(const char *filename)
     wav_fmt_ext_body fmt_ext_body;
 
     uint32_t chnk_type;
-    int bytes, length;
+    size_t bytes;
+    int length;
 
     if (strlen(filename) <= 0)
         return -1;
@@ -160,7 +161,7 @@ int WavFile::open(const char *filename)
     return 0;
 }
 
-int WavFile::safeRead(void *buffer, size_t bytes)
+size_t WavFile::safeRead(void *buffer, size_t bytes)
 {
     size_t reads, offset = 0, total = bytes;
 

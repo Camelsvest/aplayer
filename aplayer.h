@@ -16,7 +16,7 @@ public:
     APlayer(bool nonblock = false);
     virtual ~APlayer();
 
-    int play(const char *filename);
+    int play(const char *filename, const char *device="default");
     void stop();
     bool isRunning();
 
@@ -37,7 +37,7 @@ private:
 
     snd_pcm_format_t getPCMFormat(WavFile *file);
 
-    int    initHW();
+    int    initHW(const char *device);
     void   uninitHW();
     int    setParams(WavFile *file);
 
